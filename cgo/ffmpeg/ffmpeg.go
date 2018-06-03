@@ -1,7 +1,7 @@
 package ffmpeg
 
 /*
-#cgo LDFLAGS: -lavformat -lavutil -lavcodec -lavresample -lswscale
+#cgo LDFLAGS: -L/root/work/src/github.com/nareix/joy4/cgo/ffmpeg -lavformat -lavutil -lavcodec -lavresample -lswscale
 #include "ffmpeg.h"
 void ffinit() {
 	av_register_all();
