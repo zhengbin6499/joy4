@@ -9,17 +9,17 @@ int wrap_avcodec_decode_video2(AVCodecContext *ctx, AVFrame *frame, void *data, 
 */
 import "C"
 import (
-	"unsafe"
-	"runtime"
 	"fmt"
-	"image"
-	"reflect"
 	"github.com/nareix/joy4/av"
 	"github.com/nareix/joy4/codec/h264parser"
+	"image"
+	"reflect"
+	"runtime"
+	"unsafe"
 )
 
 type VideoDecoder struct {
-	ff *ffctx
+	ff        *ffctx
 	Extradata []byte
 }
 
@@ -76,13 +76,13 @@ func (self *VideoDecoder) Decode(pkt []byte) (img *VideoFrame, err error) {
 		cs := int(frame.linesize[1])
 
 		img = &VideoFrame{Image: image.YCbCr{
-			Y: fromCPtr(unsafe.Pointer(frame.data[0]), ys*h),
-			Cb: fromCPtr(unsafe.Pointer(frame.data[1]), cs*h/2),
-			Cr: fromCPtr(unsafe.Pointer(frame.data[2]), cs*h/2),
-			YStride: ys,
-			CStride: cs,
+			Y:              fromCPtr(unsafe.Pointer(frame.data[0]), ys*h),
+			Cb:             fromCPtr(unsafe.Pointer(frame.data[1]), cs*h/2),
+			Cr:             fromCPtr(unsafe.Pointer(frame.data[2]), cs*h/2),
+			YStride:        ys,
+			CStride:        cs,
 			SubsampleRatio: image.YCbCrSubsampleRatio420,
-			Rect: image.Rect(0, 0, w, h),
+			Rect:           image.Rect(0, 0, w, h),
 		}, frame: frame}
 		runtime.SetFinalizer(img, freeVideoFrame)
 	}
@@ -114,7 +114,7 @@ func NewVideoDecoder(stream av.CodecData) (dec *VideoDecoder, err error) {
 	if _dec.ff, err = newFFCtxByCodec(c); err != nil {
 		return
 	}
-	if err =  _dec.Setup(); err != nil {
+	if err = _dec.Setup(); err != nil {
 		return
 	}
 
@@ -122,3 +122,87 @@ func NewVideoDecoder(stream av.CodecData) (dec *VideoDecoder, err error) {
 	return
 }
 
+//by zhengbin
+type VideoEncoder struct {
+	ff *ffctx
+}
+
+/*
+func NewVideoEncoder() (enc *VideoEncoder, err error) {
+	_enc := &VideoEncoder{}
+
+	enc = _enc
+	return
+}
+*/
+func NewVideoEncoderByCodecType(typ av.CodecType) (enc *VideoEncoder, err error) {
+	var id uint32
+
+	switch typ {
+	case av.H264:
+		id = C.AV_CODEC_ID_H264
+
+	default:
+		err = fmt.Errorf("ffmpeg: cannot find encoder codecType=%d", typ)
+		return
+	}
+
+	codec := C.avcodec_find_encoder(id)
+	if codec == nil || C.avcodec_get_type(id) != C.AVMEDIA_TYPE_VIDEO {
+		err = fmt.Errorf("ffmpeg: cannot find video encoder codecId=%d", id)
+		return
+	}
+
+	_enc := &VideoEncoder{}
+	if _enc.ff, err = newFFCtxByCodec(codec); err != nil {
+		return
+	}
+	enc = _enc
+	return
+}
+
+func NewVideoEncoderByName(name string) (enc *VideoEncoder, err error) {
+	_enc := &VideoEncoder{}
+
+	codec := C.avcodec_find_encoder_by_name(C.CString(name))
+	if codec == nil || C.avcodec_get_type(codec.id) != C.AVMEDIA_TYPE_AUDIO {
+		err = fmt.Errorf("ffmpeg: cannot find video encoder name=%s", name)
+		return
+	}
+
+	if _enc.ff, err = newFFCtxByCodec(codec); err != nil {
+		return
+	}
+	enc = _enc
+	return
+}
+
+func (self *VideoEncoder) Encode(frame VideoFrame) (gotpkt bool, pkt []byte, err error) {
+
+	ff := &self.ff.ff
+
+	cpkt := C.AVPacket{}
+	cgotpkt := C.int(0)
+
+	cerr := C.avcodec_encode_video2(ff.codecCtx, &cpkt, ff.frame, &cgotpkt)
+	if cerr < C.int(0) {
+		err = fmt.Errorf("ffmpeg: avcodec_encode_video2 failed: %d", cerr)
+		return
+	}
+
+	if cgotpkt != 0 {
+		gotpkt = true
+		pkt = C.GoBytes(unsafe.Pointer(cpkt.data), cpkt.size)
+		C.av_packet_unref(&cpkt)
+
+		if debug {
+			fmt.Println("ffmpeg: Encode", frame.frame.pict_type, "len", len(pkt))
+		}
+	}
+
+	return
+}
+
+func (self *VideoEncoder) Close() {
+	freeFFCtx(self.ff)
+}
